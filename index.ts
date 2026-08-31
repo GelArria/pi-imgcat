@@ -414,9 +414,10 @@ function displayContainer(details: ImgcatDetails, theme: ThemeLike): Container {
 }
 
 async function maybeSixel(resolved: ResolvedImage, data: string): Promise<{ sequence: string; rows: number } | undefined> {
-	if (getCapabilities().images !== null || process.platform !== "win32") return undefined;
-	if (process.env.HERDR_ENV) return undefined; // Herdr does not pass Sixel: the multiplexer TUI eats it
-	// ponytail: sixel win32 only; add img2sixel on Linux if ever needed
+	// ponytail: on native Windows ConPTY strips kitty/iterm2 image payloads (empirically
+	// verified: raw DCS/sixel survives, kitty APC does not) — so SIXEL is the only live
+	// pixel protocol here and is preferred over native caps in every Windows context.
+	if (process.platform !== "win32") return undefined;
 	const sequence = await convertToSixel(resolved.bytes, resolved.mimeType);
 	if (!sequence) return undefined;
 	return { sequence, rows: estimateRows(data, resolved.mimeType) };
@@ -502,11 +503,9 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 				`Showed ${resolved.label} (${resolved.mimeType}, ${resolved.bytes.length.toLocaleString()} bytes).`,
 			];
 			if (params.caption) summaryLines.push(`Caption: ${params.caption}`);
-			if (!getCapabilities().images) {
-				if (details.sixel) summaryLines.push("Note: rendered via Sixel.");
-				else if (details.art) summaryLines.push("Note: rendered via ANSI blocks (no protocol in this terminal).");
-				else summaryLines.push("Note: terminal has no image protocol; showing label.");
-			}
+			if (details.sixel) summaryLines.push("Note: rendered via Sixel.");
+			else if (details.art) summaryLines.push("Note: rendered via ANSI blocks (Sixel unavailable).");
+			else if (!getCapabilities().images) summaryLines.push("Note: terminal has no image protocol; showing label.");
 
 			if (params.open) {
 				const opened = openInViewer(resolved);
@@ -531,7 +530,13 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 		container.addChild(new Text(t.fg("accent", content), 0, 0));
 		if (details?.image) {
 			const caps = getCapabilities();
-			if (caps.images) {
+			if (details.sixel) {
+				container.addChild(new Spacer(1));
+				container.addChild(new SixelImageComponent(details.sixel.sequence, details.sixel.rows));
+			} else if (details.art) {
+				container.addChild(new Spacer(1));
+				container.addChild(new RawLinesComponent(details.art));
+			} else if (caps.images) {
 				container.addChild(new Spacer(1));
 				container.addChild(
 					new Image(
@@ -541,12 +546,6 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 						{ maxWidthCells: MAX_WIDTH_CELLS },
 					),
 				);
-			} else if (details.sixel) {
-				container.addChild(new Spacer(1));
-				container.addChild(new SixelImageComponent(details.sixel.sequence, details.sixel.rows));
-			} else if (details.art) {
-				container.addChild(new Spacer(1));
-				container.addChild(new RawLinesComponent(details.art));
 			} else {
 				container.addChild(new Spacer(1));
 				container.addChild(new Text(t.fg("muted", "[image not renderable in this terminal]"), 0, 0));
