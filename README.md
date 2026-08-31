@@ -15,10 +15,11 @@ Then `/reload` in pi. Or just copy this folder to `~/.pi/agent/extensions/pi-img
 ## Usage
 
 ```
-/img <IMAGE_PATH>
+/img <IMAGE_PATH>          # inline preview
+/imgopen <IMAGE_PATH>      # inline preview + full resolution in the OS viewer
 ```
 
-The `show_image` tool is also available to the LLM, so asking for an image works too. Accepts local paths, `http(s)://` URLs, and `data:` URIs. The image is also sent to the model, so you can ask about it.
+The `show_image` tool is also available to the LLM (with an `open: true` flag for full resolution). Accepts local paths, `http(s)://` URLs, and `data:` URIs. The image is also sent to the model, so you can ask about it.
 
 ## Rendering
 

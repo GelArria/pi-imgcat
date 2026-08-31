@@ -258,6 +258,24 @@ function estimateRows(dataBase64: string, mimeType: string): number {
 	return Math.max(1, Math.min(calculateImageRows(dims, MAX_WIDTH_CELLS), MAX_SIXEL_ROWS));
 }
 
+function openInViewer(resolved: ResolvedImage): string | undefined {
+	// ponytail: explorer.exe = OS default viewer, Windows only; on macOS/Linux add `open`/`xdg-open` if ever needed
+	if (process.platform !== "win32") return undefined;
+	try {
+		let p: string;
+		if (resolved.label === "data:uri" || /^https?:\/\//i.test(resolved.label)) {
+			p = path.join(tmpdir(), `pi-imgcat-view-${Date.now()}.${MIME_EXT[resolved.mimeType] ?? "png"}`);
+			fs.writeFileSync(p, resolved.bytes); // kept: the viewer needs the file alive
+		} else {
+			p = resolved.label;
+		}
+		spawn("explorer", [p], { detached: true, stdio: "ignore" }).unref();
+		return p;
+	} catch {
+		return undefined;
+	}
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Block-art: half-blocks ANSI con truecolor — funciona en CUALQUIER terminal
 // (multiplexers como Herdr se comen Sixel/Kitty/iTerm, pero esto es texto).
@@ -424,6 +442,9 @@ const SHOW_IMAGE_PARAMS = Type.Object({
 	caption: Type.Optional(
 		Type.String({ maxLength: 200, description: "Optional one-line note shown next to the image." }),
 	),
+	open: Type.Optional(
+		Type.Boolean({ description: "Also open the image in the OS image viewer at full resolution. Set true when the user asks to see it at full size/full resolution." }),
+	),
 });
 type ShowImageInput = Static<typeof SHOW_IMAGE_PARAMS>;
 
@@ -437,6 +458,7 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"Use show_image when the user asks to see an image, screenshot, plot, or diagram.",
 			"Pass the literal path or URL the user gave; do not paraphrase.",
+			"Set open: true when the user wants the image at full resolution/full size.",
 		],
 		parameters: SHOW_IMAGE_PARAMS,
 		renderShell: "self",
@@ -486,6 +508,11 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 				else summaryLines.push("Note: terminal has no image protocol; showing label.");
 			}
 
+			if (params.open) {
+				const opened = openInViewer(resolved);
+				summaryLines.push(opened ? `Opened in OS viewer: ${opened}` : "Could not open OS viewer.");
+			}
+
 			return {
 				content: [
 					{ type: "text", text: summaryLines.join("\n") },
@@ -528,44 +555,55 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 		return container;
 	});
 
+	async function runImg(ctx: any, args: string, open: boolean): Promise<void> {
+		const source = args.trim();
+		if (!source) {
+			ctx.ui.notify(`Usage: /img${open ? "open" : ""} <path|url|data:uri>`, "warning");
+			return;
+		}
+		if (!ctx.hasUI) {
+			ctx.ui.notify("imgcat: TUI mode required", "info");
+			return;
+		}
+		let resolved: ResolvedImage;
+		try {
+			resolved = await resolveImage(source, ctx.cwd);
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			ctx.ui.notify(`imgcat: ${msg}`, "error");
+			return;
+		}
+		const data = resolved.bytes.toString("base64");
+		const details: ImgcatDetails = {
+			source,
+			resolved: resolved.label,
+			mimeType: resolved.mimeType,
+			bytes: resolved.bytes.length,
+			image: { data, mimeType: resolved.mimeType },
+		};
+		await attachFallbackDisplay(details, resolved, data);
+		pi.sendMessage(
+			{
+				customType: CUSTOM_TYPE,
+				content: `imgcat: ${resolved.label} (${resolved.mimeType}, ${resolved.bytes.length.toLocaleString()} bytes)`,
+				display: true,
+				details,
+			},
+			{ deliverAs: "followUp", triggerTurn: false },
+		);
+		if (open) {
+			const opened = openInViewer(resolved);
+			ctx.ui.notify(opened ? `imgcat: opened in OS viewer — ${opened}` : "imgcat: could not open OS viewer", opened ? "info" : "warning");
+		}
+	}
+
 	pi.registerCommand("img", {
 		description: "Show an image inline: /img <path|url|data:uri>",
-		handler: async (args: string, ctx: any) => {
-			const source = args.trim();
-			if (!source) {
-				ctx.ui.notify("Usage: /img <path|url|data:uri>", "warning");
-				return;
-			}
-			if (!ctx.hasUI) {
-				ctx.ui.notify("imgcat: TUI mode required", "info");
-				return;
-			}
-			let resolved: ResolvedImage;
-			try {
-				resolved = await resolveImage(source, ctx.cwd);
-			} catch (err: unknown) {
-				const msg = err instanceof Error ? err.message : String(err);
-				ctx.ui.notify(`imgcat: ${msg}`, "error");
-				return;
-			}
-			const data = resolved.bytes.toString("base64");
-			const details: ImgcatDetails = {
-				source,
-				resolved: resolved.label,
-				mimeType: resolved.mimeType,
-				bytes: resolved.bytes.length,
-				image: { data, mimeType: resolved.mimeType },
-			};
-			await attachFallbackDisplay(details, resolved, data);
-			pi.sendMessage(
-				{
-					customType: CUSTOM_TYPE,
-					content: `imgcat: ${resolved.label} (${resolved.mimeType}, ${resolved.bytes.length.toLocaleString()} bytes)`,
-					display: true,
-					details,
-				},
-				{ deliverAs: "followUp", triggerTurn: false },
-			);
-		},
+		handler: (args: string, ctx: any) => runImg(ctx, args, false),
+	});
+
+	pi.registerCommand("imgopen", {
+		description: "Show image inline AND open at full resolution: /imgopen <path|url|data:uri>",
+		handler: (args: string, ctx: any) => runImg(ctx, args, true),
 	});
 }
