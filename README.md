@@ -15,11 +15,10 @@ Then `/reload` in pi. Or just copy this folder to `~/.pi/agent/extensions/pi-img
 ## Usage
 
 ```
-> show me C:\Users\me\Pictures\shot.png   # the LLM calls show_image
-> /img %TEMP%\plot.png                    # manual, no LLM turn
+/img <IMAGE_PATH>
 ```
 
-Accepts local paths, `http(s)://` URLs, and `data:` URIs. The image is also sent to the model, so you can ask about it.
+The `show_image` tool is also available to the LLM, so asking for an image works too. Accepts local paths, `http(s)://` URLs, and `data:` URIs. The image is also sent to the model, so you can ask about it.
 
 ## Rendering
 
