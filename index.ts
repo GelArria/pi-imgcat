@@ -606,4 +606,15 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 		description: "Show image inline AND open at full resolution: /imgopen <path|url|data:uri>",
 		handler: (args: string, ctx: any) => runImg(ctx, args, true),
 	});
+
+	pi.on("session_start", (_event: any, ctx: any) => {
+		if (!ctx?.hasUI) return;
+		const caps = getCapabilities().images;
+		let mode: string;
+		if (caps) mode = `inline native (${caps})`;
+		else if (process.env.PI_IMAGE_PROTOCOL) mode = `forced ${process.env.PI_IMAGE_PROTOCOL}`;
+		else if (process.env.HERDR_ENV) mode = "block-art (Herdr; set PI_IMAGE_PROTOCOL=kitty + WezTerm client for real pixels)";
+		else mode = "sixel (Windows Terminal) / block-art";
+		ctx.ui.notify(`imgcat mode: ${mode}`, "info");
+	});
 }
