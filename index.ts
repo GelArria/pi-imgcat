@@ -26,6 +26,7 @@ import {
 	calculateImageRows,
 	Container,
 	getCapabilities,
+	getCellDimensions,
 	getImageDimensions,
 	Image,
 	Spacer,
@@ -42,7 +43,8 @@ const CUSTOM_TYPE = "pi-imgcat-image";
 const MAX_BYTES = 20 * 1024 * 1024;
 const PS_TIMEOUT_MS = 120_000;
 const PS_MAX_BUFFER = 128 * 1024 * 1024;
-const MAX_WIDTH_CELLS = 60; // default de terminal.imageWidthCells
+const MAX_WIDTH_CELLS = 60; // default of terminal.imageWidthCells
+const MAX_ART_COLS = 120;
 const MAX_SIXEL_ROWS = 80;
 
 const SUPPORTED_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"]);
@@ -294,9 +296,10 @@ async function convertToBlockArt(bytes: Buffer, mimeType: string, dataBase64: st
 	if (process.platform !== "win32") return undefined;
 	const dims = getImageDimensions(dataBase64, mimeType);
 	if (!dims || dims.widthPx <= 0 || dims.heightPx <= 0) return undefined;
-	// cells are ~1:2 → at 60 cols, rows = 30*h/w; vertical pixels = rows*2
-	let cols = MAX_WIDTH_CELLS;
-	let rows = Math.round((30 * dims.heightPx) / dims.widthPx);
+// cells ~1:2 (real cell size once pi has probed the terminal) → cols from live terminal width
+	const ratio = getCellDimensions().widthPx / getCellDimensions().heightPx;
+	let cols = Math.max(40, Math.min(MAX_ART_COLS, (process.stdout.columns ?? 80) - 6));
+	let rows = Math.round(cols * ratio * (dims.heightPx / dims.widthPx));
 	if (rows > MAX_SIXEL_ROWS / 2) {
 		cols = Math.max(20, Math.round((cols * (MAX_SIXEL_ROWS / 2)) / rows));
 		rows = MAX_SIXEL_ROWS / 2;
@@ -318,13 +321,30 @@ $src = '${escapePowerShellSingleQuoted(srcPath)}'
 $out = '${escapePowerShellSingleQuoted(bmpPath)}'
 $cols = ${cols}; $prows = ${pixelRows}
 
-$img = [System.Drawing.Image]::FromFile($src)
+$source = [System.Drawing.Image]::FromFile($src)
+
+# stepwise halving: kills GDI+ aliasing on large downscales
+$img = $source
+while ($img.Width -gt $cols * 2 -and $img.Height -gt $prows * 2) {
+  $w = [Math]::Max($cols, [int]($img.Width / 2))
+  $h = [Math]::Max($prows, [int]($img.Height / 2))
+  $half = New-Object System.Drawing.Bitmap([int]$w, [int]$h)
+  $hg = [System.Drawing.Graphics]::FromImage($half)
+  $hg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
+  $hg.DrawImage($img, 0, 0, $w, $h)
+  $hg.Dispose()
+  if ($img -ne $source) { $img.Dispose() }
+  $img = $half
+}
+
 $bmp = New-Object System.Drawing.Bitmap([int]$cols, [int]$prows, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
+$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
 $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
 $g.DrawImage($img, 0, 0, $cols, $prows)
-$g.Dispose(); $img.Dispose()
+$g.Dispose()
+if ($img -ne $source) { $img.Dispose() }
+$source.Dispose()
 $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Bmp)
 $bmp.Dispose()
 `;
