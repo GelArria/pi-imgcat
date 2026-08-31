@@ -512,11 +512,22 @@ export default function imgcatExtension(pi: ExtensionAPI): void {
 				summaryLines.push(opened ? `Opened in OS viewer: ${opened}` : "Could not open OS viewer.");
 			}
 
+			const modelInput = (ctx?.model?.input ?? []) as string[];
+			const modelSeesImage = modelInput.length === 0 || modelInput.includes("image");
+			if (!modelSeesImage) {
+				summaryLines.push("Note: active model has no image input; image shown to the user only.");
+			}
+
+			const content: Array<
+				| { type: "text"; text: string }
+				| { type: "image"; data: string; mimeType: string }
+			> = [{ type: "text", text: summaryLines.join("\n") }];
+			if (modelSeesImage) {
+				content.push({ type: "image", data, mimeType: resolved.mimeType });
+			}
+
 			return {
-				content: [
-					{ type: "text", text: summaryLines.join("\n") },
-					{ type: "image", data, mimeType: resolved.mimeType },
-				],
+				content,
 				details,
 			};
 		},
