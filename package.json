@@ -1,6 +1,6 @@
 {
 	"name": "pi-imgcat",
-	"version": "0.3.1",
+	"version": "0.3.2",
 	"description": "Display images inline in the pi coding agent: native protocol (iTerm2/Kitty/WezTerm/Ghostty), Sixel in Windows Terminal, ANSI half-blocks everywhere else (works under Herdr/tmux).",
 	"keywords": ["pi-package", "pi-extension", "image", "sixel", "block-art", "iterm2", "kitty", "imgcat"],
 	"license": "MIT",
@@ -12,5 +12,10 @@
 	"pi": {
 		"extensions": ["./index.ts"]
 	},
-	"files": ["index.ts", "README.md", "LICENSE"]
+	"files": ["index.ts", "README.md", "LICENSE"],
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	}
 }
