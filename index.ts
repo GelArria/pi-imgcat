@@ -212,28 +212,69 @@ function runPowerShell(script: string): Promise<string> {
 	});
 }
 
-async function convertToSixel(bytes: Buffer, mimeType: string): Promise<string | undefined> {
+function sixelTarget(dims: { widthPx: number; heightPx: number }): { pixelW: number; pixelH: number; rows: number } {
+	// pixels ≈ cells: resize big images DOWN so the render always fits the chat pane
+	const cell = getCellDimensions();
+	const cols = Math.max(40, Math.min(MAX_ART_COLS, (process.stdout.columns ?? 80) - 6));
+	let pixelW = Math.min(dims.widthPx, cols * Math.max(1, cell.widthPx));
+	let pixelH = Math.round((pixelW * dims.heightPx) / dims.widthPx);
+	const maxPixelH = MAX_SIXEL_ROWS * cell.heightPx;
+	if (pixelH > maxPixelH) {
+		pixelH = maxPixelH;
+		pixelW = Math.round((pixelH * dims.widthPx) / dims.heightPx);
+	}
+	pixelH = Math.max(2, pixelH);
+	pixelW = Math.max(1, pixelW);
+	return { pixelW, pixelH, rows: Math.max(1, Math.min(Math.ceil(pixelH / cell.heightPx), MAX_SIXEL_ROWS)) };
+}
+
+async function convertToSixel(bytes: Buffer, mimeType: string, pixelW: number, pixelH: number): Promise<string | undefined> {
 	const ext = MIME_EXT[mimeType] ?? "png";
 	const dir = fs.mkdtempSync(path.join(tmpdir(), "pi-imgcat-"));
-	const imagePath = path.join(dir, `img.${ext}`);
+	const srcPath = path.join(dir, `src.${ext}`);
+	const bmpPath = path.join(dir, "resized.bmp");
 	try {
-		fs.writeFileSync(imagePath, bytes);
+		fs.writeFileSync(srcPath, bytes);
 		const script = `
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Drawing
 
-$path = '${escapePowerShellSingleQuoted(imagePath)}'
+$src = '${escapePowerShellSingleQuoted(srcPath)}'
+$out = '${escapePowerShellSingleQuoted(bmpPath)}'
+$cols = ${pixelW}; $prows = ${pixelH}
+
+$source = [System.Drawing.Image]::FromFile($src)
+
+# stepwise halving: kills GDI+ aliasing on large downscales
+$img = $source
+while ($img.Width -gt $cols * 2 -and $img.Height -gt $prows * 2) {
+  $w = [Math]::Max($cols, [int]($img.Width / 2))
+  $h = [Math]::Max($prows, [int]($img.Height / 2))
+  $half = New-Object System.Drawing.Bitmap([int]$w, [int]$h)
+  $hg = [System.Drawing.Graphics]::FromImage($half)
+  $hg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBilinear
+  $hg.DrawImage($img, 0, 0, $w, $h)
+  $hg.Dispose()
+  if ($img -ne $source) { $img.Dispose() }
+  $img = $half
+}
+
+$bmp = New-Object System.Drawing.Bitmap([int]$cols, [int]$prows, [System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+$g.DrawImage($img, 0, 0, $cols, $prows)
+$g.Dispose()
+if ($img -ne $source) { $img.Dispose() }
+$source.Dispose()
+
+$bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Bmp)
+$bmp.Dispose()
 
 Import-Module Sixel -ErrorAction Stop
-if (-not (Test-Path -LiteralPath $path)) {
-  throw "Image path does not exist: $path"
-}
-
-$rendered = ConvertTo-Sixel -Path $path -Protocol Sixel -Force
-if ([string]::IsNullOrWhiteSpace($rendered)) {
-  throw 'ConvertTo-Sixel returned empty output.'
-}
-
+$rendered = ConvertTo-Sixel -Path $out -Protocol Sixel -Force
+if ([string]::IsNullOrWhiteSpace($rendered)) { throw 'ConvertTo-Sixel returned empty output.' }
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Write-Output $rendered
 `;
@@ -250,12 +291,6 @@ Write-Output $rendered
 			// best-effort
 		}
 	}
-}
-
-function estimateRows(dataBase64: string, mimeType: string): number {
-	const dims = getImageDimensions(dataBase64, mimeType);
-	if (!dims) return 12;
-	return Math.max(1, Math.min(calculateImageRows(dims, MAX_WIDTH_CELLS), MAX_SIXEL_ROWS));
 }
 
 function openInViewer(resolved: ResolvedImage): string | undefined {
@@ -418,9 +453,12 @@ async function maybeSixel(resolved: ResolvedImage, data: string): Promise<{ sequ
 	// verified: raw DCS/sixel survives, kitty APC does not) — so SIXEL is the only live
 	// pixel protocol here and is preferred over native caps in every Windows context.
 	if (process.platform !== "win32") return undefined;
-	const sequence = await convertToSixel(resolved.bytes, resolved.mimeType);
+	const dims = getImageDimensions(data, resolved.mimeType);
+	if (!dims || dims.widthPx <= 0 || dims.heightPx <= 0) return undefined;
+	const t = sixelTarget(dims);
+	const sequence = await convertToSixel(resolved.bytes, resolved.mimeType, t.pixelW, t.pixelH);
 	if (!sequence) return undefined;
-	return { sequence, rows: estimateRows(data, resolved.mimeType) };
+	return { sequence, rows: t.rows };
 }
 
 async function attachFallbackDisplay(details: ImgcatDetails, resolved: ResolvedImage, data: string): Promise<void> {
