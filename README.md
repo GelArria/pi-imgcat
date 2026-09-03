@@ -10,7 +10,13 @@ pi install git:github.com/GelArria/pi-imgcat
 Install-Module Sixel -Scope CurrentUser -Force
 ```
 
-Then `/reload` in pi. Or just copy this folder to `~/.pi/agent/extensions/pi-imgcat/`.
+Or from npm:
+
+```powershell
+pi install npm:pi-imgcat
+```
+
+Then `/reload` in pi.
 
 ## Usage
 
