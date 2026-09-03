@@ -1,6 +1,6 @@
 {
 	"name": "pi-imgcat",
-	"version": "0.3.4",
+	"version": "0.3.5",
 	"description": "Display images inline in the pi coding agent: native protocol (iTerm2/Kitty/WezTerm/Ghostty), Sixel in Windows Terminal, ANSI half-blocks everywhere else (works under Herdr/tmux).",
 	"keywords": [
 		"pi-package",
