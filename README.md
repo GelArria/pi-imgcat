@@ -3,7 +3,7 @@
 Show images inline in the [pi](https://pi.dev) terminal.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/GelArria/pi-imgcat/main/screenshot.png" alt="pi-imgcat rendering charts inline in the pi terminal" width="600">
+  <img src="https://cdn.jsdelivr.net/npm/pi-imgcat@0.3.6-1/media/screenshot.png" alt="pi-imgcat rendering charts inline in the pi terminal" width="600">
 </p>
 
 ## Install
