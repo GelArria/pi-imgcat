@@ -2,6 +2,10 @@
 
 Show images inline in the [pi](https://pi.dev) terminal.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/GelArria/pi-imgcat/main/screenshot.png" alt="pi-imgcat rendering charts inline in the pi terminal" width="600">
+</p>
+
 ## Install
 
 ```powershell
